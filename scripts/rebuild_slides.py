@@ -20,7 +20,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spl
 from PIL import Image
 
-import build_logo
+import build_logo_v2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -32,12 +32,23 @@ OUT = os.path.join(ROOT, "output")
 # needs no edits here.
 CANVAS = 1254
 
-# One shared logo placement for every slide.  X matches the headline's left
-# margin on 4 of the 5 slides; the box clears the highest headline (slide 2,
-# whose text starts at y=196) by ~26 px.
-LOGO_X = 104
-LOGO_Y = 46
-LOGO_W = 205
+# One shared logo placement for every slide: top-right, small, sitting just
+# above the headline.  The right margin mirrors the headline's left margin
+# (104 px) and the box bottom clears the highest headline - slide 2's, which
+# starts at y=196 - by 18 px.
+LOGO_W = 160
+LOGO_Y = 69
+LOGO_MARGIN_RIGHT = 104
+
+# Slide 3 is the exception: its top-right corner is the Paris building, not
+# sky, so the shared spot lands the logo on balconies and foliage.  Set this to
+# a (x, y) pair to park slide 3 over its own sky instead.
+SLIDE3_OVERRIDE = None
+
+# Optional white card behind the logo.  The supplied artwork's royal blue sits
+# at 1.4:1 against these skies - effectively invisible - and a plate fixes that
+# without touching a single logo colour.  None = no plate.
+PLATE = None   # e.g. dict(pad=15, radius=20, opacity=0.93)
 
 # Region to hunt for the old logo in.  Generous - the detector finds the actual
 # ink, this only keeps it from mistaking headline text or clouds for a logo.
@@ -191,16 +202,35 @@ def feather_patch(dst, src, rect, feather=28):
 
 # --------------------------------------------------------------------------
 
-def composite(img, logo_rgb, logo_a, x, y):
-    h, w = logo_a.shape
+def rounded_mask(w, h, radius, ss=4):
+    from PIL import ImageDraw
+    im = Image.new("L", (w * ss, h * ss), 0)
+    ImageDraw.Draw(im).rounded_rectangle(
+        [0, 0, w * ss - 1, h * ss - 1], radius=radius * ss, fill=255)
+    return np.asarray(im.resize((w, h), Image.LANCZOS)).astype(np.float32) / 255.0
+
+
+def composite(img, logo_rgb, logo_a, x, y, plate=None, scale=1.0):
     out = img.astype(np.float32).copy()
+    h, w = logo_a.shape
+
+    if plate:
+        pad = int(round(plate["pad"] * scale))
+        rad = int(round(plate["radius"] * scale))
+        pw, ph = w + 2 * pad, h + 2 * pad
+        pxx, pyy = x - pad, y - pad
+        m = rounded_mask(pw, ph, rad) * plate.get("opacity", 1.0)
+        reg = out[pyy:pyy + ph, pxx:pxx + pw]
+        colour = np.asarray(plate.get("colour", (255.0, 255.0, 255.0)), np.float32)
+        out[pyy:pyy + ph, pxx:pxx + pw] = colour * m[..., None] + reg * (1 - m[..., None])
+
     region = out[y:y + h, x:x + w]
     a = logo_a[..., None]
     out[y:y + h, x:x + w] = logo_rgb * a + region * (1 - a)
     return out
 
 
-def run(variant="brand", write_debug=False):
+def run(variant_suffix="", write_debug=False, logo_variant="exact"):
     os.makedirs(OUT, exist_ok=True)
 
     originals = {n: np.asarray(Image.open(os.path.join(SRC, n + ".png"))
@@ -210,13 +240,16 @@ def run(variant="brand", write_debug=False):
     sizes = {img.shape[1] for img in originals.values()}
     if len(sizes) != 1:
         raise SystemExit(f"slides differ in width: {sizes}")
-    scale = sizes.pop() / CANVAS
+    sizes_w = sizes.pop()
+    scale = sizes_w / CANVAS
     px = lambda v: int(round(v * scale))
     box = lambda b: tuple(px(v) for v in b)
 
-    logo_rgb, logo_a = build_logo.render(px(LOGO_W), variant)
-    print(f"logo {variant}: {logo_a.shape[1]}x{logo_a.shape[0]} "
-          f"at ({px(LOGO_X)},{px(LOGO_Y)})  [canvas scale {scale:g}]")
+    logo_rgb, logo_a = build_logo_v2.render(px(LOGO_W), logo_variant)
+    lw, lh = logo_a.shape[1], logo_a.shape[0]
+    logo_x = int(round(sizes_w - px(LOGO_MARGIN_RIGHT))) - lw
+    logo_y = px(LOGO_Y)
+    print(f"logo: {lw}x{lh} at ({logo_x},{logo_y})  [canvas scale {scale:g}]")
 
     # Slide 5: heal the corrupted corner from slide 4 before anything else.
     originals["slide5_office_broken"] = feather_patch(
@@ -234,11 +267,14 @@ def run(variant="brand", write_debug=False):
                 os.path.join(OUT, f"_mask_{name}.png"))
             Image.fromarray(clean.astype(np.uint8)).save(
                 os.path.join(OUT, f"_clean_{name}.png"))
-        final = composite(clean, logo_rgb, logo_a, px(LOGO_X), px(LOGO_Y))
+        at = (logo_x, logo_y)
+        if name == "slide3_why" and SLIDE3_OVERRIDE:
+            at = (px(SLIDE3_OVERRIDE[0]), px(SLIDE3_OVERRIDE[1]))
+        final = composite(clean, logo_rgb, logo_a, *at, plate=PLATE, scale=scale)
         results[name] = final.astype(np.uint8)
         print(f"  {name}: masked {int(mask.sum()):6d} px")
 
-    suffix = "" if variant == "brand" else "_white"
+    suffix = variant_suffix
     order = ["slide1_karlovy", "slide2_paris", "slide3_why",
              "slide4_office", "slide5_office_broken"]
     for i, name in enumerate(order, 1):
@@ -252,4 +288,4 @@ def run(variant="brand", write_debug=False):
 
 if __name__ == "__main__":
     import sys
-    run("brand", write_debug="--debug" in sys.argv)
+    run(write_debug="--debug" in sys.argv)
