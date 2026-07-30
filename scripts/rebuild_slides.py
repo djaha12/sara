@@ -45,10 +45,11 @@ LOGO_MARGIN_RIGHT = 104
 # a (x, y) pair to park slide 3 over its own sky instead.
 SLIDE3_OVERRIDE = None
 
-# Optional white card behind the logo.  The supplied artwork's royal blue sits
-# at 1.4:1 against these skies - effectively invisible - and a plate fixes that
-# without touching a single logo colour.  None = no plate.
-PLATE = None   # e.g. dict(pad=15, radius=20, opacity=0.93)
+# White card behind the logo.  The supplied artwork's royal blue sits at 1.38:1
+# against these skies - effectively invisible - and slide 3's top-right corner
+# is a building rather than sky.  The plate fixes both without touching a single
+# logo colour, which is why it is the default.  Set to None to drop it.
+PLATE = dict(pad=15, radius=20, opacity=0.94)
 
 # Region to hunt for the old logo in.  Generous - the detector finds the actual
 # ink, this only keeps it from mistaking headline text or clouds for a logo.
