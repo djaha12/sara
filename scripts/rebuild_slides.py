@@ -32,24 +32,23 @@ OUT = os.path.join(ROOT, "output")
 # needs no edits here.
 CANVAS = 1254
 
-# One shared logo placement for every slide: top-right, small, sitting just
-# above the headline.  The right margin mirrors the headline's left margin
-# (104 px) and the box bottom clears the highest headline - slide 2's, which
-# starts at y=196 - by 18 px.
 LOGO_W = 160
-LOGO_Y = 69
-LOGO_MARGIN_RIGHT = 104
 
-# Slide 3 is the exception: its top-right corner is the Paris building, not
-# sky, so the shared spot lands the logo on balconies and foliage.  Set this to
-# a (x, y) pair to park slide 3 over its own sky instead.
-SLIDE3_OVERRIDE = None
+# Logo centre per slide - the centres of the circles the client drew on the
+# proofs, clamped only where the drawn spot would overlap the headline (the
+# logo bottom is kept >= 8 px above each slide's headline top: 289 / 196 /
+# 341 / 200).  Slide 5 shares slide 4's layout and therefore its spot.
+PLACEMENTS = {
+    "slide1_karlovy": (1081, 184),
+    "slide2_paris": (1101, 133),        # drawn at y=152; clamped off the text
+    "slide3_why": (1034, 250),
+    "slide4_office": (1074, 137),       # drawn at y=159; clamped off the text
+    "slide5_office_broken": (1074, 137),
+}
 
-# White card behind the logo.  The supplied artwork's royal blue sits at 1.38:1
-# against these skies - effectively invisible - and slide 3's top-right corner
-# is a building rather than sky.  The plate fixes both without touching a single
-# logo colour, which is why it is the default.  Set to None to drop it.
-PLATE = dict(pad=15, radius=20, opacity=0.94)
+# White card behind the logo.  Off - the client chose the untouched 1:1 logo
+# with no plate.
+PLATE = None
 
 # Region to hunt for the old logo in.  Generous - the detector finds the actual
 # ink, this only keeps it from mistaking headline text or clouds for a logo.
@@ -248,9 +247,7 @@ def run(variant_suffix="", write_debug=False, logo_variant="exact"):
 
     logo_rgb, logo_a = build_logo_v2.render(px(LOGO_W), logo_variant)
     lw, lh = logo_a.shape[1], logo_a.shape[0]
-    logo_x = int(round(sizes_w - px(LOGO_MARGIN_RIGHT))) - lw
-    logo_y = px(LOGO_Y)
-    print(f"logo: {lw}x{lh} at ({logo_x},{logo_y})  [canvas scale {scale:g}]")
+    print(f"logo: {lw}x{lh}  [canvas scale {scale:g}]")
 
     # Slide 5: heal the corrupted corner from slide 4 before anything else.
     originals["slide5_office_broken"] = feather_patch(
@@ -268,9 +265,9 @@ def run(variant_suffix="", write_debug=False, logo_variant="exact"):
                 os.path.join(OUT, f"_mask_{name}.png"))
             Image.fromarray(clean.astype(np.uint8)).save(
                 os.path.join(OUT, f"_clean_{name}.png"))
-        at = (logo_x, logo_y)
-        if name == "slide3_why" and SLIDE3_OVERRIDE:
-            at = (px(SLIDE3_OVERRIDE[0]), px(SLIDE3_OVERRIDE[1]))
+        cx, cy = PLACEMENTS[name]
+        at = (px(cx) - lw // 2, px(cy) - lh // 2)
+        print(f"    logo at {at}")
         final = composite(clean, logo_rgb, logo_a, *at, plate=PLATE, scale=scale)
         results[name] = final.astype(np.uint8)
         print(f"  {name}: masked {int(mask.sum()):6d} px")
